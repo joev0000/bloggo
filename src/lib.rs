@@ -25,9 +25,11 @@ use error::Error;
 use handlebars::Handlebars;
 use log::{debug, info};
 use pulldown_cmark::{html, Parser};
-use serde::ser::Serialize;
+use serde::ser::{Serialize, SerializeMap, SerializeSeq, Serializer};
+use std::borrow::Borrow;
+use std::collections::BTreeMap;
 use std::fs::File;
-use std::io::BufRead;
+use std::io::{BufRead, BufReader, Read};
 use std::path::{Path, PathBuf};
 
 /// A Result type whose [Err] contains a Bloggo [Error].
@@ -81,11 +83,14 @@ impl<'a> Bloggo<'a> {
         debug!("Creating build directory: {}", self.dest_dir);
         fs::create_dir_all(&self.dest_dir)?;
         self.copy_assets()?;
-        let _posts = self.render_posts()?;
+        let posts = self.parse_posts()?;
+        self.render_posts(posts)?;
         // self.generate_index(posts)?;
         Ok(())
     }
 
+    /// Copy all files from the "assets/" source directory to the
+    /// destination directory.
     fn copy_assets(&self) -> Result<usize> {
         fn is_hidden(path: &Path) -> bool {
             path.file_name()
@@ -121,91 +126,35 @@ impl<'a> Bloggo<'a> {
         Ok(count)
     }
 
-    fn render_posts(&mut self) -> Result<usize> {
-        let mut render_count = 0_usize;
-        let mut src_dir = PathBuf::new();
-        src_dir.push(&self.src_dir);
-        src_dir.push("posts");
-
-        for rde in fs::recursive_read_dir(&src_dir)? {
-            let de = rde?;
-            let src_path = de.path();
-            if src_path.extension().and_then(|s| s.to_str()) == Some("md") {
-                let mut dest_path = PathBuf::new();
-                dest_path.push(&self.dest_dir);
-                dest_path.push(src_path.strip_prefix(&src_dir)?);
-                dest_path.set_extension("html");
-                info!(
-                    "Rendering {} to {}",
-                    src_path.display(),
-                    dest_path.display()
-                );
-                let src_vec = std::fs::read(&src_path)?;
-                let mut src: &[u8] = src_vec.as_ref();
-                let mut line = String::with_capacity(256);
-                let mut len = src.read_line(&mut line)?;
-                if len == 0 {
-                    return Err(Error::UnexpectedEOF(src_path.into_os_string()));
-                }
-
-                if line.starts_with("---") {
-                    let mut buf = String::with_capacity(1024);
-                    loop {
-                        line.clear();
-                        len = src.read_line(&mut line)?;
-                        if len == 0 {
-                            return Err(Error::UnexpectedEOF(src_path.into_os_string()));
-                        }
-                        if line.starts_with("---") {
-                            break;
-                        }
-                        buf.push_str(&line);
-                    }
-                    let front_matter = Bloggo::parse_yaml_data(&buf)?;
-                    debug!("front matter: {:?}", front_matter);
-
-                    let text = Bloggo::parse_text(src)?;
-
-                    if let serde_yaml::Value::Mapping(data) = front_matter {
-                        let template_key: serde_yaml::Value = "layout".into();
-                        let template = data
-                            .get(template_key)
-                            .and_then(serde_yaml::Value::as_str)
-                            .unwrap_or("default");
-
-                        let text_key: serde_yaml::Value = "text".into();
-                        let text_value: serde_yaml::Value = text.into();
-                        // TODO: There's probably a better way to do this
-                        // without cloning.
-                        let mut data = data.clone();
-                        data.insert(text_key, text_value);
-
-                        self.render_post(template, data, dest_path)?;
-                    } else {
-                        return Err(Error::Other(
-                            "Unexpected YAML type found in front matter.".into(),
-                        ));
-                    }
-                }
-            }
-            render_count += 1;
+    /// Render the posts in the source directory to the destination directory.
+    fn render_posts(&mut self, posts: Vec<BTreeMap<String, Value>>) -> Result<()> {
+        for post in posts {
+            self.render_post(post)?;
         }
 
-        Ok(render_count)
-    }
-
-    fn render_post(
-        &mut self,
-        template: &str,
-        data: impl Serialize,
-        dest_file: impl AsRef<Path>,
-    ) -> Result<()> {
-        self.register_template(template)?;
-        let out = File::create(dest_file)?;
-        self.handlebars.render_to_write(template, &data, out)?;
         Ok(())
     }
 
+    /// Render an individual post to the destination directory.
+    fn render_post(&mut self, post: BTreeMap<String, Value>) -> Result<()> {
+        let template = post
+            .get("layout")
+            .and_then(|v| v.as_string())
+            .unwrap_or_else(|| String::from("default"));
+        self.register_template(&template)?;
+        if let Some(Value::String(filename)) = post.get("filename") {
+            let mut pathbuf = PathBuf::new();
+            pathbuf.push(&self.dest_dir);
+            pathbuf.push(filename);
+            pathbuf.set_extension("html");
+            debug!("Rendering {}", pathbuf.display());
+            let out = File::create(pathbuf)?;
+            self.handlebars.render_to_write(&template, &post, out)?;
+        }
+        Ok(())
+    }
+
+    /// Register a template with Handlebars.
     fn register_template(&mut self, name: &str) -> Result<()> {
         if !self.handlebars.has_template(name) {
             let mut file_name = String::from(name);
@@ -227,29 +176,104 @@ impl<'a> Bloggo<'a> {
         }
     }
 
-    fn parse_text(mut src: &[u8]) -> Result<String> {
-        let mut line = String::with_capacity(256);
-        let mut md = String::with_capacity(16 * 1024);
-        let mut len = src.read_line(&mut line)?;
-        while len != 0 {
-            md.push_str(&line);
-            line.clear();
-            len = src.read_line(&mut line)?;
+    /// Parse the posts in the source directory.
+    fn parse_posts(&self) -> Result<Vec<BTreeMap<String, Value>>> {
+        let mut posts = Vec::new();
+        let mut src_dir = PathBuf::new();
+        src_dir.push(&self.src_dir);
+        src_dir.push("posts");
+
+        for rde in fs::recursive_read_dir(&src_dir)? {
+            let de = rde?;
+            let src_path = de.path();
+            posts.push(self.parse_post(src_path)?);
         }
-        let mut text = String::with_capacity(16 * 1024);
-        let parser = Parser::new(&md);
-        html::push_html(&mut text, parser);
-        Ok(text)
+        Ok(posts)
     }
 
-    fn parse_yaml_data(yaml: &str) -> Result<serde_yaml::Value> {
-        serde_yaml::from_str::<serde_yaml::value::Value>(yaml)
-            .map_err(|e| Error::Other(format!("YAML deserialization failure: {}", e)))
-    }
+    /// Parse a post from the given [Path].
+    fn parse_post<P>(&self, path: P) -> Result<BTreeMap<String, Value>>
+    where
+        P: AsRef<Path>,
+    {
+        // open a file
+        // read first line
+        let p = path.as_ref();
+        debug!("parse_post: Parsing {}", p.display());
+        let file = File::open(p)?;
+        let mut line = String::with_capacity(256);
+        let mut buf = BufReader::new(file);
+        if buf.read_line(&mut line)? == 0 {
+            return Err(Error::UnexpectedEOF(p.as_os_str().to_os_string()));
+        }
+        let mut post = if line.starts_with("---") {
+            debug!("parse_post: Parsing YAML front matter.");
+            let front_matter = read_until(&mut buf, "---")?;
+            if let Value::Map(map) = parse_yaml_data(front_matter.as_str())? {
+                Ok(map)
+            } else {
+                Err(Error::Other("Parsed YAML is not a mapping.".to_string()))
+            }
+        } else {
+            Err(Error::Other("Missing front matter.".to_string()))
+        }?;
+        let mut rest_of_file = String::new();
+        buf.read_to_string(&mut rest_of_file)?;
 
-    fn _parse_toml_data(toml: &str) -> Result<impl Serialize> {
-        toml::de::from_str::<toml::value::Value>(toml)
-            .map_err(|e| Error::Other(format!("TOML serialization failure: {}", e)))
+        let mut text = String::with_capacity(rest_of_file.len());
+        if p.extension().and_then(|s| s.to_str()) == Some("md") {
+            let parser = Parser::new(&rest_of_file);
+            html::push_html(&mut text, parser);
+        } else {
+            text = rest_of_file;
+        }
+        post.insert("text".into(), text.into());
+
+        let dest_path = p.strip_prefix(&self.src_dir)?.strip_prefix("posts")?;
+        let cows = dest_path.to_string_lossy();
+        let filename: &str = cows.borrow();
+        post.insert("filename".into(), filename.into());
+        Ok(post)
+    }
+}
+
+/// Parse a YAML [str] into a [Value].
+fn parse_yaml_data(yaml: &str) -> Result<Value> {
+    let yval = serde_yaml::from_str::<serde_yaml::value::Value>(yaml)
+        .map_err(|e| Error::Other(format!("YAML deserialization failure: {}", e)))?;
+    yval.try_into()
+}
+
+/// Read a [BufRead] into a [String] until a linke with the given prefix
+///
+///# Example
+///
+/// ```compile_fail
+/// use std::io::BufReader;
+/// use bloggo::read_until;
+///
+/// let mut bufread = BufReader::new("Line One\nLine Two\n-----\nLine Three".as_bytes());
+///
+/// let two_lines = read_until(&mut bufread, "---");
+/// assert_eq!("Line One\nLine Two\n", two_lines.unwrap());
+/// ```
+fn read_until<B>(buf_read: &mut B, prefix: &str) -> Result<String>
+where
+    B: std::io::BufRead,
+{
+    let mut s = String::new();
+    let mut line = String::new();
+
+    loop {
+        let bytes_read = buf_read.read_line(&mut line)?;
+        if bytes_read == 0 {
+            return Err(Error::Other("Unexpected end of file.".to_string()));
+        } else if line.starts_with(prefix) {
+            return Ok(s);
+        } else {
+            s.push_str(line.as_str());
+        }
+        line.clear();
     }
 }
 
@@ -301,5 +325,163 @@ impl Builder {
 impl Default for Builder {
     fn default() -> Self {
         Self::new()
+    }
+}
+
+/// An unsigned number, either an integer or floating point number.
+#[derive(Debug)]
+pub enum Number {
+    Integer(i64),
+    Float(f64),
+}
+
+/// A value parsed from post front matter. This enum is necessary since
+/// each front matter type (YAML, TOML, etc.) is different.
+#[derive(Debug)]
+pub enum Value {
+    Null,
+    Boolean(bool),
+    Number(Number),
+    String(String),
+    Array(Vec<Value>),
+    Map(BTreeMap<String, Value>),
+}
+
+impl Value {
+    /// Return [Some]([String]) if the Value is a string, [None] otherwise.
+    ///
+    /// # Example
+    ///
+    /// ```
+    /// use bloggo::Value;
+    ///
+    /// let string  = Value::String("a string".to_string());
+    /// let boolean = Value::Boolean(true);
+    ///
+    /// assert_eq!(Some("a string".to_string()), string.as_string());
+    /// assert_eq!(None, boolean.as_string());
+    /// ```
+    pub fn as_string(&self) -> Option<String> {
+        match self {
+            Value::String(s) => Some(s.clone()),
+            _ => None,
+        }
+    }
+}
+
+impl From<String> for Value {
+    fn from(s: String) -> Value {
+        Value::String(s)
+    }
+}
+
+impl From<&str> for Value {
+    fn from(s: &str) -> Value {
+        Value::String(String::from(s))
+    }
+}
+
+impl From<bool> for Value {
+    fn from(b: bool) -> Value {
+        Value::Boolean(b)
+    }
+}
+
+impl From<i64> for Value {
+    fn from(i: i64) -> Value {
+        Value::Number(Number::Integer(i))
+    }
+}
+
+impl From<f64> for Value {
+    fn from(f: f64) -> Value {
+        Value::Number(Number::Float(f))
+    }
+}
+
+impl From<Vec<Value>> for Value {
+    fn from(v: Vec<Value>) -> Value {
+        Value::Array(v)
+    }
+}
+
+impl From<BTreeMap<String, Value>> for Value {
+    fn from(m: BTreeMap<String, Value>) -> Value {
+        Value::Map(m)
+    }
+}
+
+impl TryFrom<serde_yaml::Value> for Value {
+    type Error = Error;
+
+    fn try_from(yval: serde_yaml::Value) -> Result<Value> {
+        match yval {
+            serde_yaml::Value::Null => Ok(Value::Null),
+            serde_yaml::Value::Bool(b) => Ok(Value::Boolean(b)),
+            serde_yaml::Value::Number(n) => {
+                if let Some(f) = n.as_f64() {
+                    Ok(Value::Number(Number::Float(f)))
+                } else if let Some(i) = n.as_i64() {
+                    Ok(Value::Number(Number::Integer(i)))
+                } else {
+                    Err(Error::Other(format!(
+                        "Unknown number format while parsing YAML: {}",
+                        n
+                    )))
+                }
+            }
+            serde_yaml::Value::String(s) => Ok(Value::String(s)),
+            serde_yaml::Value::Sequence(s) => {
+                let mut vec = Vec::with_capacity(s.len());
+                for yv in s {
+                    let bv: Value = yv.try_into()?;
+                    vec.push(bv);
+                }
+                Ok(Value::Array(vec))
+            }
+            serde_yaml::Value::Mapping(m) => {
+                let mut map = BTreeMap::new();
+                for (k, v) in m.iter() {
+                    if let Some(key) = k.as_str() {
+                        let value: Value = v.to_owned().try_into()?;
+                        map.insert(String::from(key), value);
+                    }
+                }
+                Ok(Value::Map(map))
+            }
+            serde_yaml::Value::Tagged(tv) => {
+                let v: Value = tv.value.try_into()?;
+                Ok(v)
+            }
+        }
+    }
+}
+
+impl Serialize for Value {
+    fn serialize<S>(&self, serializer: S) -> std::result::Result<S::Ok, S::Error>
+    where
+        S: Serializer,
+    {
+        match self {
+            Value::String(s) => serializer.serialize_str(s),
+            Value::Boolean(b) => serializer.serialize_bool(*b),
+            Value::Number(Number::Integer(i)) => serializer.serialize_i64(*i),
+            Value::Number(Number::Float(f)) => serializer.serialize_f64(*f),
+            Value::Array(v) => {
+                let mut s = serializer.serialize_seq(Some(v.len()))?;
+                for e in v {
+                    s.serialize_element(e)?;
+                }
+                s.end()
+            }
+            Value::Map(m) => {
+                let mut s = serializer.serialize_map(Some(m.len()))?;
+                for (k, v) in m.iter() {
+                    s.serialize_entry(k, v)?;
+                }
+                s.end()
+            }
+            Value::Null => serializer.serialize_none(),
+        }
     }
 }
