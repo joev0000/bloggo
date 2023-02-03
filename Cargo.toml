@@ -23,3 +23,8 @@ version = "4.1.1"
 default-features = false
 # "color" feature pulls in more dependencies than we need.
 features = ["cargo", "error-context", "help", "std", "suggestions", "usage"]
+
+[dependencies.chrono]
+version = "0.4.23"
+default-features = false
+features = [ "std" ]

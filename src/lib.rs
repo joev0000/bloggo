@@ -21,6 +21,7 @@
 pub mod error;
 pub mod fs;
 
+use chrono::{DateTime, NaiveDate, Utc};
 use error::Error;
 use handlebars::Handlebars;
 use log::{debug, info};
@@ -84,8 +85,8 @@ impl<'a> Bloggo<'a> {
         fs::create_dir_all(&self.dest_dir)?;
         self.copy_assets()?;
         let posts = self.parse_posts()?;
-        self.render_posts(posts)?;
-        // self.generate_index(posts)?;
+        self.render_posts(&posts)?;
+        self.generate_index(&posts)?;
         Ok(())
     }
 
@@ -127,7 +128,7 @@ impl<'a> Bloggo<'a> {
     }
 
     /// Render the posts in the source directory to the destination directory.
-    fn render_posts(&mut self, posts: Vec<BTreeMap<String, Value>>) -> Result<()> {
+    fn render_posts(&mut self, posts: &Vec<BTreeMap<String, Value>>) -> Result<()> {
         for post in posts {
             self.render_post(post)?;
         }
@@ -136,7 +137,7 @@ impl<'a> Bloggo<'a> {
     }
 
     /// Render an individual post to the destination directory.
-    fn render_post(&mut self, post: BTreeMap<String, Value>) -> Result<()> {
+    fn render_post(&mut self, post: &BTreeMap<String, Value>) -> Result<()> {
         let template = post
             .get("layout")
             .and_then(|v| v.as_string())
@@ -151,6 +152,17 @@ impl<'a> Bloggo<'a> {
             let out = File::create(pathbuf)?;
             self.handlebars.render_to_write(&template, &post, out)?;
         }
+        Ok(())
+    }
+
+    /// Generate an index page using the index template and the list of posts.
+    fn generate_index(&mut self, posts: &Vec<BTreeMap<String, Value>>) -> Result<()> {
+        self.register_template("index")?;
+        let mut out_path = PathBuf::new();
+        out_path.push(&self.dest_dir);
+        out_path.push("index.html");
+        let out = File::create(out_path)?;
+        self.handlebars.render_to_write("index", &posts, out)?;
         Ok(())
     }
 
@@ -188,6 +200,15 @@ impl<'a> Bloggo<'a> {
             let src_path = de.path();
             posts.push(self.parse_post(src_path)?);
         }
+        posts.sort_by_cached_key(|p| {
+            p.get("date")
+                .and_then(|v| v.as_string())
+                .and_then(|s| DateTime::parse_from_str(&s, "%+").ok())
+                .unwrap_or_else(|| DateTime::parse_from_str("1970-01-01T00:00:00Z", "%+").unwrap())
+            // TODO: Make the Unix Epoch a constant so it doesn't need to be
+            // parsed each time.
+        });
+        posts.reverse();
         Ok(posts)
     }
 
@@ -229,12 +250,34 @@ impl<'a> Bloggo<'a> {
         }
         post.insert("text".into(), text.into());
 
-        let dest_path = p.strip_prefix(&self.src_dir)?.strip_prefix("posts")?;
-        let cows = dest_path.to_string_lossy();
+        let mut dest_path_buf = p
+            .strip_prefix(&self.src_dir)?
+            .strip_prefix("posts")?
+            .to_path_buf();
+        dest_path_buf.set_extension("html");
+
+        let cows = dest_path_buf.to_string_lossy();
         let filename: &str = cows.borrow();
-        post.insert("filename".into(), filename.into());
+        post.insert("path".into(), filename.into());
+        if !post.contains_key("date") {
+            if let Some(date) = extract_date_from_str(filename) {
+                let formatted = format!("{}", date.format("%+"));
+                post.insert("date".into(), formatted.into());
+            }
+        }
         Ok(post)
     }
+}
+
+/// Attempt to extract a date from the first ten characters of a string.
+/// The date will have a time of midnight, UTC
+fn extract_date_from_str(s: &str) -> Option<DateTime<Utc>> {
+    let mut truncated = String::from(s);
+    truncated.truncate(10);
+    NaiveDate::parse_from_str(truncated.as_str(), "%Y-%m-%d")
+        .ok()
+        .and_then(|d| d.and_hms_opt(0, 0, 0))
+        .map(|dt| DateTime::from_utc(dt, Utc))
 }
 
 /// Parse a YAML [str] into a [Value].
