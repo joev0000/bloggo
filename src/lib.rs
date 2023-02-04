@@ -23,7 +23,7 @@ pub mod fs;
 
 use chrono::{DateTime, NaiveDate, Utc};
 use error::Error;
-use handlebars::Handlebars;
+use handlebars::{Context, Handlebars, Helper, HelperDef, RenderContext, RenderError, ScopedJson};
 use log::{debug, info};
 use pulldown_cmark::{html, Parser};
 use serde::ser::{Serialize, SerializeMap, SerializeSeq, Serializer};
@@ -64,10 +64,12 @@ impl<'a> Bloggo<'a> {
     /// Create a new Bloggo instance with the given source and destination
     /// directories.
     pub fn new(src_dir: impl Into<String>, dest_dir: impl Into<String>) -> Self {
+        let mut handlebars = Handlebars::new();
+        handlebars.register_helper("formatDateTime", Box::new(FormatDateTimeHelper::new()));
         Self {
             src_dir: src_dir.into(),
             dest_dir: dest_dir.into(),
-            handlebars: Handlebars::new(),
+            handlebars,
         }
     }
 
@@ -526,5 +528,59 @@ impl Serialize for Value {
             }
             Value::Null => serializer.serialize_none(),
         }
+    }
+}
+
+/// A Handlebars helper that formats date string properties for rendering.
+///
+/// The first parameter is the property to be formatted.
+/// The second parameter is optional, and specifies the [chrono::format::strftime] format
+/// specification.
+/// If no format is specified, `%c` is used as a default.
+///
+/// # Examples
+/// ```no_compile
+/// {{#if date}}
+///   {{formatDateTime date "%Y-%m-%d"}}
+/// {{/if}}
+/// ```
+struct FormatDateTimeHelper {}
+
+impl FormatDateTimeHelper {
+    /// Create a new FormatDateTimeHelper.
+    fn new() -> Self {
+        Self {}
+    }
+}
+
+impl HelperDef for FormatDateTimeHelper {
+    fn call_inner<'reg: 'rc, 'rc>(
+        &self,
+        h: &Helper<'reg, 'rc>,
+        _: &'reg Handlebars<'reg>,
+        _: &'rc Context,
+        _: &mut RenderContext<'reg, 'rc>,
+    ) -> std::result::Result<ScopedJson<'reg, 'rc>, RenderError> {
+        let value = h
+            .param(0)
+            .ok_or_else(|| RenderError::new("Missing property to format."))?
+            .value();
+        if value.is_null() {
+            return Err(RenderError::new("Value to format is null."));
+        }
+        let format = h
+            .param(1)
+            .map(|p| p.value())
+            .filter(|v| !v.is_null())
+            .and_then(|v| v.as_str())
+            .unwrap_or("%c");
+        let s = value
+            .as_str()
+            .ok_or_else(|| RenderError::new(format!("Could not convert to string: {}", value)))?;
+        let dt = DateTime::parse_from_str(s, "%+")
+            .map_err(|e| RenderError::new(format!("Could not parse as datetime: {} ({})", s, e)))?;
+        Ok(ScopedJson::Derived(serde_json::value::Value::String(
+            format!("{}", dt.format(format)),
+        )))
     }
 }
