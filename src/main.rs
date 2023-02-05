@@ -11,6 +11,7 @@ fn main() -> ExitCode {
             arg!(-s --source <DIR> "Directory containing post and template source")
                 .default_value("source/"),
             arg!(-o --dest <DIR> "Directory where output will be stored").default_value("build/"),
+            arg!(-b --base <URL> "The base URL for relative links").default_value(""),
             arg!(-v --verbose "Provide verbose output"),
         ])
         .subcommand_required(true)
@@ -20,6 +21,7 @@ fn main() -> ExitCode {
 
     let src_dir = matches.get_one::<String>("source").unwrap();
     let dest_dir = matches.get_one::<String>("dest").unwrap();
+    let base_url = matches.get_one::<String>("base").unwrap();
     let verbose = matches.get_flag("verbose");
 
     init_logger(verbose);
@@ -27,6 +29,7 @@ fn main() -> ExitCode {
     let mut b = bloggo::Builder::new()
         .src_dir(src_dir)
         .dest_dir(dest_dir)
+        .base_url(base_url)
         .build();
 
     let result = match matches.subcommand() {

@@ -18,6 +18,7 @@
 //! bloggo.build();
 //! ```
 
+pub mod atom;
 pub mod error;
 pub mod fs;
 
@@ -30,7 +31,7 @@ use serde::ser::{Serialize, SerializeMap, SerializeSeq, Serializer};
 use std::borrow::Borrow;
 use std::collections::BTreeMap;
 use std::fs::File;
-use std::io::{BufRead, BufReader, Read};
+use std::io::{BufRead, BufReader, BufWriter, Read, Write};
 use std::path::{Path, PathBuf};
 
 /// A Result type whose [Err] contains a Bloggo [Error].
@@ -57,18 +58,24 @@ pub type Result<T> = std::result::Result<T, Error>;
 pub struct Bloggo<'a> {
     src_dir: String,
     dest_dir: String,
+    base_url: String,
     handlebars: Handlebars<'a>,
 }
 
 impl<'a> Bloggo<'a> {
     /// Create a new Bloggo instance with the given source and destination
     /// directories.
-    pub fn new(src_dir: impl Into<String>, dest_dir: impl Into<String>) -> Self {
+    pub fn new(
+        src_dir: impl Into<String>,
+        dest_dir: impl Into<String>,
+        base_url: impl Into<String>,
+    ) -> Self {
         let mut handlebars = Handlebars::new();
         handlebars.register_helper("formatDateTime", Box::new(FormatDateTimeHelper::new()));
         Self {
             src_dir: src_dir.into(),
             dest_dir: dest_dir.into(),
+            base_url: base_url.into(),
             handlebars,
         }
     }
@@ -98,6 +105,16 @@ impl<'a> Bloggo<'a> {
         let posts = self.parse_posts()?;
         self.render_posts(&posts)?;
         self.generate_index(&posts)?;
+
+        {
+            let mut feed_path = PathBuf::new();
+            feed_path.push(&self.dest_dir);
+            feed_path.push("atom.xml");
+            let mut feed = BufWriter::new(File::create(feed_path)?);
+
+            atom::generate_atom_feed(&posts, &mut feed)?;
+            feed.flush()?;
+        }
         Ok(())
     }
 
@@ -246,6 +263,11 @@ impl<'a> Bloggo<'a> {
         let cows = dest_path_buf.to_string_lossy();
         let filename: &str = cows.borrow();
         post.insert("path".into(), filename.into());
+
+        let mut url = String::from(&self.base_url);
+        url.push('/');
+        url.push_str(filename);
+        post.insert("url".into(), url.into());
         if !post.contains_key("date") {
             if let Some(date) = extract_date_from_str(filename) {
                 let formatted = format!("{}", date.format("%+"));
@@ -322,6 +344,7 @@ where
 pub struct Builder {
     src_dir: String,
     dest_dir: String,
+    base_url: String,
 }
 
 impl Builder {
@@ -331,6 +354,7 @@ impl Builder {
         Self {
             src_dir: String::from("src/"),
             dest_dir: String::from("dest/"),
+            base_url: String::from(""),
         }
     }
 
@@ -346,9 +370,14 @@ impl Builder {
         self
     }
 
+    pub fn base_url(mut self, base_url: impl Into<String>) -> Self {
+        self.base_url = base_url.into();
+        self
+    }
+
     /// Build a Bloggo struct with the previously configured values.
     pub fn build<'a>(self) -> Bloggo<'a> {
-        Bloggo::new(self.src_dir, self.dest_dir)
+        Bloggo::new(self.src_dir, self.dest_dir, self.base_url)
     }
 }
 
