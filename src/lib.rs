@@ -82,8 +82,17 @@ impl<'a> Bloggo<'a> {
     /// Builds the static site by copying assets and generating HTML.
     pub fn build(&mut self) -> Result<()> {
         info!("Building from {} to {}", self.src_dir, self.dest_dir);
-        // make dest dir.
-        debug!("Creating build directory: {}", self.dest_dir);
+
+        let mut template_dir = PathBuf::new();
+        template_dir.push(&self.src_dir);
+        template_dir.push("templates");
+        info!(
+            "Registering templates in directory {}",
+            template_dir.display()
+        );
+        self.handlebars
+            .register_templates_directory(".html.hbs", template_dir)?;
+
         fs::create_dir_all(&self.dest_dir)?;
         self.copy_assets()?;
         let posts = self.parse_posts()?;
@@ -130,7 +139,7 @@ impl<'a> Bloggo<'a> {
     }
 
     /// Render the posts in the source directory to the destination directory.
-    fn render_posts(&mut self, posts: &Vec<BTreeMap<String, Value>>) -> Result<()> {
+    fn render_posts(&self, posts: &Vec<BTreeMap<String, Value>>) -> Result<()> {
         for post in posts {
             self.render_post(post)?;
         }
@@ -139,56 +148,31 @@ impl<'a> Bloggo<'a> {
     }
 
     /// Render an individual post to the destination directory.
-    fn render_post(&mut self, post: &BTreeMap<String, Value>) -> Result<()> {
+    fn render_post(&self, post: &BTreeMap<String, Value>) -> Result<()> {
         let template = post
             .get("layout")
             .and_then(|v| v.as_string())
             .unwrap_or_else(|| String::from("default"));
-        self.register_template(&template)?;
         if let Some(Value::String(filename)) = post.get("path") {
             let mut pathbuf = PathBuf::new();
             pathbuf.push(&self.dest_dir);
             pathbuf.push(filename);
             pathbuf.set_extension("html");
-            debug!("Rendering {}", pathbuf.display());
             let out = File::create(&pathbuf)?;
-            debug!("Rendering post to {}", pathbuf.display());
+            info!("Rendering post to {}", pathbuf.display());
             self.handlebars.render_to_write(&template, &post, out)?;
         }
         Ok(())
     }
 
     /// Generate an index page using the index template and the list of posts.
-    fn generate_index(&mut self, posts: &Vec<BTreeMap<String, Value>>) -> Result<()> {
-        self.register_template("index")?;
+    fn generate_index(&self, posts: &Vec<BTreeMap<String, Value>>) -> Result<()> {
         let mut out_path = PathBuf::new();
         out_path.push(&self.dest_dir);
         out_path.push("index.html");
         let out = File::create(out_path)?;
         self.handlebars.render_to_write("index", &posts, out)?;
         Ok(())
-    }
-
-    /// Register a template with Handlebars.
-    fn register_template(&mut self, name: &str) -> Result<()> {
-        if !self.handlebars.has_template(name) {
-            let mut file_name = String::from(name);
-            file_name.push_str(".html.hbs");
-
-            let mut path = PathBuf::new();
-            path.push(&self.src_dir);
-            path.push("templates");
-            path.push(file_name);
-
-            debug!("Registering template {} at {}", name, path.display());
-
-            self.handlebars
-                .register_template_file(name, path)
-                .map_err(Error::from)
-        } else {
-            debug!("Template {} already registered.", name);
-            Ok(())
-        }
     }
 
     /// Parse the posts in the source directory.
@@ -581,8 +565,9 @@ impl HelperDef for FormatDateTimeHelper {
             .and_then(|v| v.as_str())
             .unwrap_or("%c");
 
-        let dt = DateTime::parse_from_str(value, "%+")
-            .map_err(|e| RenderError::new(format!("Could not parse as datetime: {} ({})", value, e)))?;
+        let dt = DateTime::parse_from_str(value, "%+").map_err(|e| {
+            RenderError::new(format!("Could not parse as datetime: {} ({})", value, e))
+        })?;
 
         Ok(ScopedJson::Derived(serde_json::value::Value::String(
             format!("{}", dt.format(format)),
