@@ -145,13 +145,14 @@ impl<'a> Bloggo<'a> {
             .and_then(|v| v.as_string())
             .unwrap_or_else(|| String::from("default"));
         self.register_template(&template)?;
-        if let Some(Value::String(filename)) = post.get("filename") {
+        if let Some(Value::String(filename)) = post.get("path") {
             let mut pathbuf = PathBuf::new();
             pathbuf.push(&self.dest_dir);
             pathbuf.push(filename);
             pathbuf.set_extension("html");
             debug!("Rendering {}", pathbuf.display());
-            let out = File::create(pathbuf)?;
+            let out = File::create(&pathbuf)?;
+            debug!("Rendering post to {}", pathbuf.display());
             self.handlebars.render_to_write(&template, &post, out)?;
         }
         Ok(())
@@ -533,16 +534,21 @@ impl Serialize for Value {
 
 /// A Handlebars helper that formats date string properties for rendering.
 ///
-/// The first parameter is the property to be formatted.
+/// The first parameter is the property to be formatted. It must be a String
+/// that contains a date in the ISO8601 format.
 /// The second parameter is optional, and specifies the [chrono::format::strftime] format
 /// specification.
 /// If no format is specified, `%c` is used as a default.
 ///
 /// # Examples
 /// ```no_compile
+/// // date: "2023-02-04T15:38:42Z"
+///
 /// {{#if date}}
-///   {{formatDateTime date "%Y-%m-%d"}}
+///   {{formatDateTime date "%A, %B %e, %Y at %l:%M%P"}}
 /// {{/if}}
+///
+/// // output: "Saturday, February 4, 2023 at 3:38pm"
 /// ```
 struct FormatDateTimeHelper {}
 
@@ -563,22 +569,21 @@ impl HelperDef for FormatDateTimeHelper {
     ) -> std::result::Result<ScopedJson<'reg, 'rc>, RenderError> {
         let value = h
             .param(0)
-            .ok_or_else(|| RenderError::new("Missing property to format."))?
-            .value();
-        if value.is_null() {
-            return Err(RenderError::new("Value to format is null."));
-        }
+            .map(|pj| pj.value())
+            .filter(|v| !v.is_null())
+            .and_then(|v| v.as_str())
+            .ok_or_else(|| RenderError::new("Property cannot be converted to string."))?;
+
         let format = h
             .param(1)
             .map(|p| p.value())
             .filter(|v| !v.is_null())
             .and_then(|v| v.as_str())
             .unwrap_or("%c");
-        let s = value
-            .as_str()
-            .ok_or_else(|| RenderError::new(format!("Could not convert to string: {}", value)))?;
-        let dt = DateTime::parse_from_str(s, "%+")
-            .map_err(|e| RenderError::new(format!("Could not parse as datetime: {} ({})", s, e)))?;
+
+        let dt = DateTime::parse_from_str(value, "%+")
+            .map_err(|e| RenderError::new(format!("Could not parse as datetime: {} ({})", value, e)))?;
+
         Ok(ScopedJson::Derived(serde_json::value::Value::String(
             format!("{}", dt.format(format)),
         )))
