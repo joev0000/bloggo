@@ -28,11 +28,13 @@ use handlebars::{Context, Handlebars, Helper, HelperDef, RenderContext, RenderEr
 use log::{debug, info};
 use pulldown_cmark::{html, Parser};
 use serde::ser::{Serialize, SerializeMap, SerializeSeq, Serializer};
-use std::borrow::Borrow;
-use std::collections::BTreeMap;
-use std::fs::File;
-use std::io::{BufRead, BufReader, BufWriter, Read, Write};
-use std::path::{Path, PathBuf};
+use std::{
+    borrow::Borrow,
+    collections::BTreeMap,
+    fs::File,
+    io::{BufRead, BufReader, BufWriter, Read, Write},
+    path::{Path, PathBuf},
+};
 
 /// A Result type whose [Err] contains a Bloggo [Error].
 pub type Result<T> = std::result::Result<T, Error>;
