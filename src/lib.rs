@@ -37,6 +37,9 @@ use std::path::{Path, PathBuf};
 /// A Result type whose [Err] contains a Bloggo [Error].
 pub type Result<T> = std::result::Result<T, Error>;
 
+/// A Post is a mapping of [String]s to [Value]s.
+type Post = BTreeMap<String, Value>;
+
 /// An instance of Bloggo that contains configuration settings and stateful
 /// context for rendering posts.
 ///
@@ -156,7 +159,7 @@ impl<'a> Bloggo<'a> {
     }
 
     /// Render the posts in the source directory to the destination directory.
-    fn render_posts(&self, posts: &Vec<BTreeMap<String, Value>>) -> Result<()> {
+    fn render_posts(&self, posts: &Vec<Post>) -> Result<()> {
         for post in posts {
             self.render_post(post)?;
         }
@@ -165,7 +168,7 @@ impl<'a> Bloggo<'a> {
     }
 
     /// Render an individual post to the destination directory.
-    fn render_post(&self, post: &BTreeMap<String, Value>) -> Result<()> {
+    fn render_post(&self, post: &Post) -> Result<()> {
         let template = post
             .get("layout")
             .and_then(|v| v.as_string())
@@ -183,7 +186,7 @@ impl<'a> Bloggo<'a> {
     }
 
     /// Generate an index page using the index template and the list of posts.
-    fn generate_index(&self, posts: &Vec<BTreeMap<String, Value>>) -> Result<()> {
+    fn generate_index(&self, posts: &Vec<Post>) -> Result<()> {
         let mut out_path = PathBuf::new();
         out_path.push(&self.dest_dir);
         out_path.push("index.html");
@@ -193,7 +196,7 @@ impl<'a> Bloggo<'a> {
     }
 
     /// Parse the posts in the source directory.
-    fn parse_posts(&self) -> Result<Vec<BTreeMap<String, Value>>> {
+    fn parse_posts(&self) -> Result<Vec<Post>> {
         let mut posts = Vec::new();
         let mut src_dir = PathBuf::new();
         src_dir.push(&self.src_dir);
@@ -217,7 +220,7 @@ impl<'a> Bloggo<'a> {
     }
 
     /// Parse a post from the given [Path].
-    fn parse_post<P>(&self, path: P) -> Result<BTreeMap<String, Value>>
+    fn parse_post<P>(&self, path: P) -> Result<Post>
     where
         P: AsRef<Path>,
     {
