@@ -34,6 +34,7 @@ use std::{
     fs::File,
     io::{BufRead, BufReader, BufWriter, Read, Write},
     path::{Path, PathBuf},
+    rc::Rc,
 };
 
 /// A Result type whose [Err] contains a Bloggo [Error].
@@ -109,7 +110,14 @@ impl<'a> Bloggo<'a> {
         self.copy_assets()?;
         let posts = self.parse_posts()?;
         self.render_posts(&posts)?;
-        self.generate_index(&posts)?;
+        {
+            let mut out_path = PathBuf::new();
+            out_path.push(&self.dest_dir);
+            out_path.push("index.html");
+            let out = File::create(out_path)?;
+            self.generate_index(&posts, out)?;
+        }
+        self.generate_tag_indexes(&posts)?;
 
         {
             let mut feed_path = PathBuf::new();
@@ -188,12 +196,52 @@ impl<'a> Bloggo<'a> {
     }
 
     /// Generate an index page using the index template and the list of posts.
-    fn generate_index(&self, posts: &Vec<Post>) -> Result<()> {
-        let mut out_path = PathBuf::new();
-        out_path.push(&self.dest_dir);
-        out_path.push("index.html");
-        let out = File::create(out_path)?;
+    fn generate_index<W>(&self, posts: &Vec<Post>, out: W) -> Result<()>
+    where
+        W: Write,
+    {
         self.handlebars.render_to_write("index", &posts, out)?;
+        Ok(())
+    }
+
+    fn generate_tag_indexes(&self, posts: &Vec<Post>) -> Result<()> {
+        let rc_posts: Vec<Rc<&Post>> = posts.iter().map(|p| Rc::new(p)).collect();
+        // generate index structure
+        let mut tag_index: BTreeMap<String, Vec<Rc<&Post>>> = BTreeMap::new();
+        for post in rc_posts {
+            match post.get("tags") {
+                Some(Value::String(s)) => {
+                    crate::insert_to_vec(&mut tag_index, s, post.clone());
+                }
+                Some(Value::Array(a)) => {
+                    for element in a {
+                        if let Some(s) = element.as_string() {
+                            crate::insert_to_vec(&mut tag_index, &s, post.clone());
+                        }
+                    }
+                }
+                _ => {}
+            }
+        }
+
+        // iterate through the tags
+        for (k, v) in tag_index.iter() {
+            let mut unwrapped: Vec<&Post> = Vec::new();
+            for rc in v {
+                unwrapped.push(rc);
+            }
+
+            let mut out_path = PathBuf::new();
+            out_path.push(&self.dest_dir);
+            out_path.push(k);
+            fs::create_dir_all(&out_path)?;
+
+            out_path.push("index.html");
+            let out = File::create(out_path)?;
+
+            self.handlebars
+                .render_to_write("tag-index", &unwrapped, out)?;
+        }
         Ok(())
     }
 
@@ -331,6 +379,18 @@ where
             s.push_str(line.as_str());
         }
         line.clear();
+    }
+}
+
+/// Insert a value into a vector in a BTreeMap. Create a new Vec if necessary.
+fn insert_to_vec<K, V>(map: &mut BTreeMap<K, Vec<V>>, key: &K, value: V)
+where
+    K: Ord + Clone,
+{
+    if let Some(v) = map.get_mut(key) {
+        v.push(value);
+    } else {
+        map.insert(key.clone(), vec![value]);
     }
 }
 
