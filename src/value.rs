@@ -6,7 +6,7 @@ use serde::ser::{Serialize, SerializeMap, SerializeSeq, Serializer};
 use std::collections::BTreeMap;
 
 /// An unsigned number, either an integer or floating point number.
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 pub enum Number {
     Integer(i64),
     Float(f64),
@@ -14,7 +14,7 @@ pub enum Number {
 
 /// A value parsed from post front matter. This enum is necessary since
 /// each front matter type (YAML, TOML, etc.) is different.
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 pub enum Value {
     Null,
     Boolean(bool),

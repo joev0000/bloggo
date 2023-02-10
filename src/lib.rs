@@ -36,7 +36,6 @@ use std::{
     fs::File,
     io::{BufRead, BufReader, BufWriter, Read, Write},
     path::{Path, PathBuf},
-    rc::Rc,
 };
 use value::Value;
 
@@ -199,19 +198,23 @@ impl<'a> Bloggo<'a> {
     }
 
     /// Generate an index page using the index template and the list of posts.
-    fn generate_index<W>(&self, posts: &Vec<Post>, out: W) -> Result<()>
+    fn generate_index<W>(&self, posts: &[Post], out: W) -> Result<()>
     where
         W: Write,
     {
-        self.handlebars.render_to_write("index", &posts, out)?;
+        let p: Vec<Value> = posts.iter()
+            .map(|e| Value::Map(e.clone()))
+            .collect();
+        let mut data = BTreeMap::new();
+        data.insert("posts", Value::Array(p));
+        self.handlebars.render_to_write("index", &data, out)?;
         Ok(())
     }
 
     fn generate_tag_indexes(&self, posts: &Vec<Post>) -> Result<()> {
-        let rc_posts: Vec<Rc<&Post>> = posts.iter().map(|p| Rc::new(p)).collect();
         // generate index structure
-        let mut tag_index: BTreeMap<String, Vec<Rc<&Post>>> = BTreeMap::new();
-        for post in rc_posts {
+        let mut tag_index: BTreeMap<String, Vec<Post>> = BTreeMap::new();
+        for post in posts {
             match post.get("tags") {
                 Some(Value::String(s)) => {
                     crate::insert_to_vec(&mut tag_index, s, post.clone());
@@ -229,10 +232,7 @@ impl<'a> Bloggo<'a> {
 
         // iterate through the tags
         for (k, v) in tag_index.iter() {
-            let mut unwrapped: Vec<&Post> = Vec::new();
-            for rc in v {
-                unwrapped.push(rc);
-            }
+            let posts = v.iter().map(|e| Value::Map(e.clone())).collect();
 
             let mut out_path = PathBuf::new();
             out_path.push(&self.dest_dir);
@@ -242,8 +242,12 @@ impl<'a> Bloggo<'a> {
             out_path.push("index.html");
             let out = File::create(out_path)?;
 
+            let mut data = BTreeMap::new();
+            data.insert("tag", Value::String(k.clone()));
+            data.insert("posts", Value::Array(posts));
+
             self.handlebars
-                .render_to_write("tag-index", &unwrapped, out)?;
+                .render_to_write("index", &data, out)?;
         }
         Ok(())
     }
