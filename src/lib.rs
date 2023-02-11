@@ -110,26 +110,54 @@ impl<'a> Bloggo<'a> {
 
         fs::create_dir_all(&self.dest_dir)?;
         self.copy_assets()?;
-        let posts = self.parse_posts()?;
-        self.render_posts(&posts)?;
-        {
-            let mut out_path = PathBuf::new();
-            out_path.push(&self.dest_dir);
-            out_path.push("index.html");
-            let out = File::create(out_path)?;
-            self.generate_index(&posts, out)?;
-        }
-        self.generate_tag_indexes(&posts)?;
+        let all_posts = self.parse_posts()?;
 
-        {
-            let mut feed_path = PathBuf::new();
-            feed_path.push(&self.dest_dir);
+        // Generate tag indices.
+        let tag_index = self.generate_tag_indexes(&all_posts);
+        let tags: Vec<&String> = tag_index.keys().collect();
+        debug!("Tags: {:?}", tags);
+
+        let all_posts_refs: Vec<&Post> = all_posts.iter().collect();
+        self.render_index(&all_posts_refs, None, &PathBuf::from("index.html"))?;
+        self.render_atom_feed(&all_posts_refs, &PathBuf::from("atom.xml"))?;
+        for (tag, posts) in tag_index {
+            let mut index_path = PathBuf::from(&tag);
+            index_path.push("index.html");
+            self.render_index(&posts, Some(&tag), &index_path)?;
+
+            let mut feed_path = PathBuf::from(&tag);
             feed_path.push("atom.xml");
-            let mut feed = BufWriter::new(File::create(feed_path)?);
-
-            atom::generate_atom_feed(&posts, &mut feed)?;
-            feed.flush()?;
+            self.render_atom_feed(&posts, &feed_path)?;
         }
+        self.render_posts(&all_posts)?;
+        Ok(())
+    }
+
+    fn render_index(&self, posts: &[&Post], tag: Option<&str>, path: &Path) -> Result<()> {
+        let mut p = PathBuf::new();
+        p.push(&self.dest_dir);
+        p.push(path);
+        info!("Rendering index to {}", p.display());
+        if let Some(parent) = p.parent() {
+            fs::create_dir_all(parent)?;
+        }
+        let mut out = BufWriter::new(File::create(p)?);
+        self.generate_index(posts, tag, &mut out)?;
+        out.flush()?;
+        Ok(())
+    }
+
+    fn render_atom_feed(&self, posts: &[&Post], path: &Path) -> Result<()> {
+        let mut p = PathBuf::new();
+        p.push(&self.dest_dir);
+        p.push(path);
+        info!("Rendering feed to {}", p.display());
+        if let Some(parent) = p.parent() {
+            fs::create_dir_all(parent)?;
+        }
+        let mut out = BufWriter::new(File::create(p)?);
+        atom::generate_atom_feed(posts, &mut out)?;
+        out.flush()?;
         Ok(())
     }
 
@@ -198,58 +226,54 @@ impl<'a> Bloggo<'a> {
     }
 
     /// Generate an index page using the index template and the list of posts.
-    fn generate_index<W>(&self, posts: &[Post], out: W) -> Result<()>
+    fn generate_index<W>(&self, posts: &[&Post], tag: Option<&str>, out: &mut W) -> Result<()>
     where
         W: Write,
     {
-        let p: Vec<Value> = posts.iter()
+        let p: Vec<Value> = posts
+            .to_owned()
+            .clone()
+            .into_iter()
             .map(|e| Value::Map(e.clone()))
             .collect();
         let mut data = BTreeMap::new();
         data.insert("posts", Value::Array(p));
+        if let Some(t) = tag {
+            data.insert("tag", Value::String(String::from(t)));
+        }
         self.handlebars.render_to_write("index", &data, out)?;
         Ok(())
     }
 
-    fn generate_tag_indexes(&self, posts: &Vec<Post>) -> Result<()> {
+    fn generate_tag_indexes<'b>(&'b self, posts: &'b Vec<Post>) -> BTreeMap<String, Vec<&'b Post>> {
+        let mut tag_index: BTreeMap<String, Vec<&Post>> = BTreeMap::new();
+
+        let mut add_post_to_index = |s: &String, p| {
+            if let Some(v) = tag_index.get_mut(s) {
+                v.push(p);
+            } else {
+                let v = vec![p];
+                tag_index.insert(s.clone(), v);
+            }
+        };
+
         // generate index structure
-        let mut tag_index: BTreeMap<String, Vec<Post>> = BTreeMap::new();
         for post in posts {
             match post.get("tags") {
                 Some(Value::String(s)) => {
-                    crate::insert_to_vec(&mut tag_index, s, post.clone());
+                    add_post_to_index(s, post);
                 }
                 Some(Value::Array(a)) => {
                     for element in a {
                         if let Some(s) = element.as_string() {
-                            crate::insert_to_vec(&mut tag_index, &s, post.clone());
+                            add_post_to_index(&s, post)
                         }
                     }
                 }
                 _ => {}
             }
         }
-
-        // iterate through the tags
-        for (k, v) in tag_index.iter() {
-            let posts = v.iter().map(|e| Value::Map(e.clone())).collect();
-
-            let mut out_path = PathBuf::new();
-            out_path.push(&self.dest_dir);
-            out_path.push(k);
-            fs::create_dir_all(&out_path)?;
-
-            out_path.push("index.html");
-            let out = File::create(out_path)?;
-
-            let mut data = BTreeMap::new();
-            data.insert("tag", Value::String(k.clone()));
-            data.insert("posts", Value::Array(posts));
-
-            self.handlebars
-                .render_to_write("index", &data, out)?;
-        }
-        Ok(())
+        tag_index
     }
 
     /// Parse the posts in the source directory.
@@ -386,18 +410,6 @@ where
             s.push_str(line.as_str());
         }
         line.clear();
-    }
-}
-
-/// Insert a value into a vector in a BTreeMap. Create a new Vec if necessary.
-fn insert_to_vec<K, V>(map: &mut BTreeMap<K, Vec<V>>, key: &K, value: V)
-where
-    K: Ord + Clone,
-{
-    if let Some(v) = map.get_mut(key) {
-        v.push(value);
-    } else {
-        map.insert(key.clone(), vec![value]);
     }
 }
 

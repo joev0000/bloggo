@@ -1,11 +1,7 @@
-use crate::{Result, Value};
-use std::collections::BTreeMap;
-use std::io::{BufWriter, Write};
+use crate::{Post, Result};
+use std::io::Write;
 
-pub(crate) fn generate_atom_feed<W>(
-    posts: &Vec<BTreeMap<String, Value>>,
-    out: &mut BufWriter<W>,
-) -> Result<()>
+pub(crate) fn generate_atom_feed<W>(posts: &[&Post], out: &mut W) -> Result<()>
 where
     W: Write,
 {
