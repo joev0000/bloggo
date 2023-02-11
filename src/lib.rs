@@ -73,17 +73,13 @@ pub struct Bloggo<'a> {
 impl<'a> Bloggo<'a> {
     /// Create a new Bloggo instance with the given source and destination
     /// directories.
-    pub fn new(
-        src_dir: impl Into<String>,
-        dest_dir: impl Into<String>,
-        base_url: impl Into<String>,
-    ) -> Self {
+    pub fn new(src_dir: String, dest_dir: String, base_url: String) -> Self {
         let mut handlebars = Handlebars::new();
         handlebars.register_helper("formatDateTime", Box::new(FormatDateTimeHelper::new()));
         Self {
-            src_dir: src_dir.into(),
-            dest_dir: dest_dir.into(),
-            base_url: base_url.into(),
+            src_dir,
+            dest_dir,
+            base_url,
             handlebars,
         }
     }
