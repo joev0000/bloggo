@@ -30,6 +30,7 @@ use handlebars::Handlebars;
 use helper::FormatDateTimeHelper;
 use log::{debug, info};
 use pulldown_cmark::{html, Parser};
+use serde::{ser::SerializeMap, Serialize, Serializer};
 use std::{
     borrow::Borrow,
     collections::BTreeMap,
@@ -114,22 +115,29 @@ impl<'a> Bloggo<'a> {
         debug!("Tags: {:?}", tags);
 
         let all_posts_refs: Vec<&Post> = all_posts.iter().collect();
-        self.render_index(&all_posts_refs, None, &PathBuf::from("index.html"))?;
+        let mut render_context = RenderContext {
+            tag: None,
+            tags: &tags,
+            posts: &all_posts_refs,
+        };
+        self.render_index(&render_context, &PathBuf::from("index.html"))?;
         self.render_atom_feed(&all_posts_refs, &PathBuf::from("atom.xml"))?;
-        for (tag, posts) in tag_index {
-            let mut index_path = PathBuf::from(&tag);
+        for (tag, posts) in &tag_index {
+            let mut index_path = PathBuf::from(tag);
             index_path.push("index.html");
-            self.render_index(&posts, Some(&tag), &index_path)?;
+            render_context.tag = Some(tag);
+            render_context.posts = posts;
+            self.render_index(&render_context, &index_path)?;
 
-            let mut feed_path = PathBuf::from(&tag);
+            let mut feed_path = PathBuf::from(tag);
             feed_path.push("atom.xml");
-            self.render_atom_feed(&posts, &feed_path)?;
+            self.render_atom_feed(posts, &feed_path)?;
         }
         self.render_posts(&all_posts)?;
         Ok(())
     }
 
-    fn render_index(&self, posts: &[&Post], tag: Option<&str>, path: &Path) -> Result<()> {
+    fn render_index(&self, render_context: &RenderContext, path: &Path) -> Result<()> {
         let mut p = PathBuf::new();
         p.push(&self.dest_dir);
         p.push(path);
@@ -138,7 +146,7 @@ impl<'a> Bloggo<'a> {
             fs::create_dir_all(parent)?;
         }
         let mut out = BufWriter::new(File::create(p)?);
-        self.generate_index(posts, tag, &mut out)?;
+        self.generate_index(render_context, &mut out)?;
         out.flush()?;
         Ok(())
     }
@@ -222,22 +230,12 @@ impl<'a> Bloggo<'a> {
     }
 
     /// Generate an index page using the index template and the list of posts.
-    fn generate_index<W>(&self, posts: &[&Post], tag: Option<&str>, out: &mut W) -> Result<()>
+    fn generate_index<W>(&self, render_context: &RenderContext, out: &mut W) -> Result<()>
     where
         W: Write,
     {
-        let p: Vec<Value> = posts
-            .to_owned()
-            .clone()
-            .into_iter()
-            .map(|e| Value::Map(e.clone()))
-            .collect();
-        let mut data = BTreeMap::new();
-        data.insert("posts", Value::Array(p));
-        if let Some(t) = tag {
-            data.insert("tag", Value::String(String::from(t)));
-        }
-        self.handlebars.render_to_write("index", &data, out)?;
+        self.handlebars
+            .render_to_write("index", render_context, out)?;
         Ok(())
     }
 
@@ -464,5 +462,26 @@ impl Builder {
 impl Default for Builder {
     fn default() -> Self {
         Self::new()
+    }
+}
+
+/// Structure to hold the data values rendered by Handlebars
+struct RenderContext<'a> {
+    tag: Option<&'a str>,
+    tags: &'a Vec<&'a String>,
+    posts: &'a Vec<&'a Post>,
+}
+
+impl<'a> Serialize for RenderContext<'a> {
+    fn serialize<S>(&self, serializer: S) -> std::result::Result<S::Ok, S::Error>
+    where
+        S: Serializer,
+    {
+        let len: usize = 2 + usize::from(self.tag.is_some());
+        let mut s = serializer.serialize_map(Some(len))?;
+        self.tag.map(|t| s.serialize_entry("tag", t));
+        s.serialize_entry("tags", self.tags)?;
+        s.serialize_entry("posts", self.posts)?;
+        s.end()
     }
 }
