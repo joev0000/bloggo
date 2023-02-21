@@ -111,8 +111,14 @@ impl<'a> Bloggo<'a> {
 
         // Generate tag indices.
         let tag_index = self.generate_tag_indexes(&all_posts);
-        let tags: Vec<&String> = tag_index.keys().collect();
-        debug!("Tags: {:?}", tags);
+        let tags: Vec<Tag> = tag_index
+            .iter()
+            .map(|entry| Tag {
+                name: entry.0,
+                index_url: format!("{}/{}/", self.base_url, entry.0),
+                count: entry.1.len(),
+            })
+            .collect();
 
         let all_posts_refs: Vec<&Post> = all_posts.iter().collect();
         let mut render_context = RenderContext {
@@ -465,10 +471,30 @@ impl Default for Builder {
     }
 }
 
+/// Struct that holds information about a single tag.
+struct Tag<'a> {
+    name: &'a str,
+    index_url: String,
+    count: usize,
+}
+
+impl<'a> Serialize for Tag<'a> {
+    fn serialize<S>(&self, serializer: S) -> std::result::Result<S::Ok, S::Error>
+    where
+        S: Serializer,
+    {
+        let mut s = serializer.serialize_map(Some(3))?;
+        s.serialize_entry("name", self.name)?;
+        s.serialize_entry("index_url", &self.index_url)?;
+        s.serialize_entry("count", &self.count)?;
+        s.end()
+    }
+}
+
 /// Structure to hold the data values rendered by Handlebars
 struct RenderContext<'a> {
     tag: Option<&'a str>,
-    tags: &'a Vec<&'a String>,
+    tags: &'a Vec<Tag<'a>>,
     posts: &'a Vec<&'a Post>,
 }
 
