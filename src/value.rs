@@ -30,7 +30,7 @@ impl Value {
     /// # Example
     ///
     /// ```
-    /// use bloggo::Value;
+    /// use bloggo::value::Value;
     ///
     /// let string  = Value::String("a string".to_string());
     /// let boolean = Value::Boolean(true);
