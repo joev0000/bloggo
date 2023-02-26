@@ -336,6 +336,11 @@ impl<'a> Bloggo<'a> {
         } else {
             text = rest_of_file;
         }
+        if !post.contains_key("abstract") {
+            if let Some(p) = extract_first_paragraph(&text) {
+                post.insert("abstract".into(), p.into());
+            }
+        }
         post.insert("text".into(), text.into());
 
         let mut dest_path_buf = p
@@ -360,6 +365,14 @@ impl<'a> Bloggo<'a> {
         }
         Ok(post)
     }
+}
+
+/// Find the content between `<p>` and `</p>`, if it exists.
+fn extract_first_paragraph(text: &str) -> Option<String> {
+    text.find("<p>").and_then(|begin| {
+        text.find("</p>")
+            .map(|end| String::from(&text[begin..(end + 4)]))
+    })
 }
 
 /// Attempt to extract a date from the first ten characters of a string.
