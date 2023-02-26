@@ -368,6 +368,18 @@ impl<'a> Bloggo<'a> {
 }
 
 /// Find the content between `<p>` and `</p>`, if it exists.
+///
+///# Example
+///
+/// ```compile_fail
+/// use bloggo::extract_first_paragraph;
+///
+/// assert_eq!(
+///     "<p>foo bar</p>",
+///     extract_first_paragraph("blah <p>foo bar</p> blah").unwrap());
+///
+/// assert_eq!(None, extract_first_paragraph("blah blah blah"));
+/// ```
 fn extract_first_paragraph(text: &str) -> Option<String> {
     text.find("<p>").and_then(|begin| {
         text.find("</p>")
@@ -375,8 +387,20 @@ fn extract_first_paragraph(text: &str) -> Option<String> {
     })
 }
 
-/// Attempt to extract a date from the first ten characters of a string.
+/// Attempt to extract a date from the first ten characters of a string,
+/// if it is formatted as YYYY-mm-dd.
+///
 /// The date will have a time of midnight, UTC
+///
+///# Example
+/// ```compile_fail
+/// use bloggo::extract_date_from_str;
+///
+/// assert_eq!(
+///     "2023-02-26T00:00:00Z".parse::<DateTime<Utc>>().ok(),
+///     extract_date_from_str("2023-02-26-blah blah blah")
+/// );
+/// ```
 fn extract_date_from_str(s: &str) -> Option<DateTime<Utc>> {
     let mut truncated = String::from(s);
     truncated.truncate(10);
@@ -522,5 +546,54 @@ impl<'a> Serialize for RenderContext<'a> {
         s.serialize_entry("tags", self.tags)?;
         s.serialize_entry("posts", self.posts)?;
         s.end()
+    }
+}
+
+#[cfg(test)]
+mod test {
+    use super::*;
+
+    #[test]
+    fn extract_first_paragraph_happy_path() {
+        assert_eq!(
+            "<p>foo bar</p>",
+            extract_first_paragraph("blah <p>foo bar</p><p>yada yada</p> blah").unwrap()
+        );
+    }
+
+    #[test]
+    fn extract_first_paragraph_not_there() {
+        assert_eq!(None, extract_first_paragraph("blah blah blah"));
+    }
+
+    #[test]
+    fn extract_first_paragraph_zero_length() {
+        assert_eq!(None, extract_first_paragraph(""));
+    }
+
+    #[test]
+    fn extract_first_paragraph_missing_end_tag() {
+        assert_eq!(None, extract_first_paragraph("blah <p>foo bar"));
+    }
+
+    #[test]
+    fn extract_date_from_str_happy_path() {
+        assert_eq!(
+            "2023-02-26T00:00:00Z".parse::<DateTime<Utc>>().ok(),
+            extract_date_from_str("2023-02-26-blah blah blah")
+        );
+    }
+
+    #[test]
+    fn extract_date_from_str_unhappy_path() {
+        assert_eq!(None, extract_date_from_str("This is not a date."));
+    }
+
+    #[test]
+    fn read_until_happy_path() {
+        let mut bufread = BufReader::new("Line One\nLine Two\n-----\nLine Three".as_bytes());
+
+        let two_lines = read_until(&mut bufread, "---");
+        assert_eq!("Line One\nLine Two\n", two_lines.unwrap());
     }
 }
