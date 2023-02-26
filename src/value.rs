@@ -3,7 +3,7 @@
 
 use crate::{error::Error, Result};
 use serde::ser::{Serialize, SerializeMap, SerializeSeq, Serializer};
-use std::collections::BTreeMap;
+use std::collections::HashMap;
 
 /// An unsigned number, either an integer or floating point number.
 #[derive(Debug, Clone)]
@@ -21,7 +21,7 @@ pub enum Value {
     Number(Number),
     String(String),
     Array(Vec<Value>),
-    Map(BTreeMap<String, Value>),
+    Map(HashMap<String, Value>),
 }
 
 impl Value {
@@ -82,8 +82,8 @@ impl From<Vec<Value>> for Value {
     }
 }
 
-impl From<BTreeMap<String, Value>> for Value {
-    fn from(m: BTreeMap<String, Value>) -> Value {
+impl From<HashMap<String, Value>> for Value {
+    fn from(m: HashMap<String, Value>) -> Value {
         Value::Map(m)
     }
 }
@@ -117,7 +117,7 @@ impl TryFrom<serde_yaml::Value> for Value {
                 Ok(Value::Array(vec))
             }
             serde_yaml::Value::Mapping(m) => {
-                let mut map = BTreeMap::new();
+                let mut map = HashMap::new();
                 for (k, v) in m.iter() {
                     if let Some(key) = k.as_str() {
                         let value: Value = v.to_owned().try_into()?;

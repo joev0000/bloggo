@@ -33,7 +33,7 @@ use pulldown_cmark::{html, Parser};
 use serde::{ser::SerializeMap, Serialize, Serializer};
 use std::{
     borrow::Borrow,
-    collections::BTreeMap,
+    collections::HashMap,
     fs::File,
     io::{BufRead, BufReader, BufWriter, Read, Write},
     path::{Path, PathBuf},
@@ -44,7 +44,7 @@ use value::Value;
 pub type Result<T> = std::result::Result<T, Error>;
 
 /// A Post is a mapping of [String]s to [Value]s.
-type Post = BTreeMap<String, Value>;
+type Post = HashMap<String, Value>;
 
 /// An instance of Bloggo that contains configuration settings and stateful
 /// context for rendering posts.
@@ -245,8 +245,8 @@ impl<'a> Bloggo<'a> {
         Ok(())
     }
 
-    fn generate_tag_indexes<'b>(&'b self, posts: &'b Vec<Post>) -> BTreeMap<String, Vec<&'b Post>> {
-        let mut tag_index: BTreeMap<String, Vec<&Post>> = BTreeMap::new();
+    fn generate_tag_indexes<'b>(&'b self, posts: &'b Vec<Post>) -> HashMap<String, Vec<&'b Post>> {
+        let mut tag_index: HashMap<String, Vec<&Post>> = HashMap::new();
 
         let mut add_post_to_index = |s: &String, p| {
             if let Some(v) = tag_index.get_mut(s) {
