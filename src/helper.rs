@@ -59,3 +59,56 @@ impl HelperDef for FormatDateTimeHelper {
         )))
     }
 }
+
+/// A Handlebars helper that joins string arrays.
+///
+/// The first parameter is the property to be formatted. It must be an
+/// array of Strings.
+/// The second parameter is optional, and specifies the join seperator.
+/// If no format is specified, ", " is used as a default.
+///
+/// # Examples
+/// ```no_compile
+/// // tags: ["alpha", "beta"]
+///
+/// {{join tags " + "}}
+///
+/// // output: "alpha + beta"
+/// ```
+pub(crate) struct JoinHelper {}
+
+impl JoinHelper {
+    /// Create a new JoinHelper.
+    pub fn new() -> Self {
+        Self {}
+    }
+}
+
+impl HelperDef for JoinHelper {
+    fn call_inner<'reg: 'rc, 'rc>(
+        &self,
+        h: &Helper<'reg, 'rc>,
+        _: &'reg Handlebars<'reg>,
+        _: &'rc Context,
+        _: &mut RenderContext<'reg, 'rc>,
+    ) -> std::result::Result<ScopedJson<'reg, 'rc>, RenderError> {
+        let value: Vec<&str> = h
+            .param(0)
+            .map(|pj| pj.value())
+            .filter(|v| !v.is_null())
+            .and_then(|v| v.as_array())
+            .map(|a| a.iter().filter_map(|e| e.as_str()).collect())
+            .ok_or_else(|| RenderError::new("Property cannot be converted to array."))?;
+
+        let sep = h
+            .param(1)
+            .map(|p| p.value())
+            .filter(|v| !v.is_null())
+            .and_then(|v| v.as_str())
+            .unwrap_or(", ");
+
+        Ok(ScopedJson::Derived(serde_json::value::Value::String(
+            value.join(sep),
+        )))
+    }
+}

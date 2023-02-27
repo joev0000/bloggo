@@ -27,7 +27,7 @@ pub mod value;
 use chrono::{DateTime, NaiveDate, Utc};
 use error::Error;
 use handlebars::Handlebars;
-use helper::FormatDateTimeHelper;
+use helper::{FormatDateTimeHelper, JoinHelper};
 use log::{debug, info};
 use pulldown_cmark::{html, Parser};
 use serde::{ser::SerializeMap, Serialize, Serializer};
@@ -77,6 +77,7 @@ impl<'a> Bloggo<'a> {
     pub fn new(src_dir: String, dest_dir: String, base_url: String) -> Self {
         let mut handlebars = Handlebars::new();
         handlebars.register_helper("formatDateTime", Box::new(FormatDateTimeHelper::new()));
+        handlebars.register_helper("join", Box::new(JoinHelper::new()));
         Self {
             src_dir,
             dest_dir,
