@@ -341,6 +341,14 @@ impl<'a> Bloggo<'a> {
                 post.insert("abstract".into(), p.into());
             }
         }
+
+        // Replace a tags String with a single element tags Array
+        if let Some(Value::String(_)) = post.get("tags") {
+            if let Some(Value::String(s)) = post.remove("tags") {
+                post.insert("tags".into(), Value::Array(vec![Value::String(s)]));
+            }
+        }
+
         post.insert("text".into(), text.into());
 
         let mut dest_path_buf = p
