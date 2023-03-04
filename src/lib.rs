@@ -140,7 +140,7 @@ impl<'a> Bloggo<'a> {
             feed_path.push("atom.xml");
             self.render_atom_feed(posts, &feed_path)?;
         }
-        self.render_posts(&all_posts)?;
+        self.render_posts(&all_posts, &tags)?;
         Ok(())
     }
 
@@ -210,16 +210,16 @@ impl<'a> Bloggo<'a> {
     }
 
     /// Render the posts in the source directory to the destination directory.
-    fn render_posts(&self, posts: &Vec<Post>) -> Result<()> {
+    fn render_posts(&self, posts: &Vec<Post>, tags: &Vec<Tag>) -> Result<()> {
         for post in posts {
-            self.render_post(post)?;
+            self.render_post(post, tags)?;
         }
 
         Ok(())
     }
 
     /// Render an individual post to the destination directory.
-    fn render_post(&self, post: &Post) -> Result<()> {
+    fn render_post(&self, post: &Post, tags: &Vec<Tag>) -> Result<()> {
         let template = post
             .get("layout")
             .and_then(|v| v.as_string())
@@ -231,7 +231,12 @@ impl<'a> Bloggo<'a> {
             pathbuf.set_extension("html");
             let out = File::create(&pathbuf)?;
             info!("Rendering post to {}", pathbuf.display());
-            self.handlebars.render_to_write(&template, &post, out)?;
+            let render_context = RenderContext {
+                tag: None,
+                posts: &vec!(post),
+                tags
+            };
+            self.handlebars.render_to_write(&template, &render_context, out)?;
         }
         Ok(())
     }
