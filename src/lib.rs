@@ -233,10 +233,11 @@ impl<'a> Bloggo<'a> {
             info!("Rendering post to {}", pathbuf.display());
             let render_context = RenderContext {
                 tag: None,
-                posts: &vec!(post),
-                tags
+                posts: &vec![post],
+                tags,
             };
-            self.handlebars.render_to_write(&template, &render_context, out)?;
+            self.handlebars
+                .render_to_write(&template, &render_context, out)?;
         }
         Ok(())
     }
