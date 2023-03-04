@@ -29,7 +29,7 @@ use error::Error;
 use handlebars::Handlebars;
 use helper::{FormatDateTimeHelper, JoinHelper};
 use log::{debug, info};
-use pulldown_cmark::{html, Parser};
+use pulldown_cmark::{html, Options, Parser};
 use serde::{ser::SerializeMap, Serialize, Serializer};
 use std::{
     borrow::Borrow,
@@ -337,7 +337,9 @@ impl<'a> Bloggo<'a> {
 
         let mut text = String::with_capacity(rest_of_file.len());
         if p.extension().and_then(|s| s.to_str()) == Some("md") {
-            let parser = Parser::new(&rest_of_file);
+            let mut options = Options::all();
+            options.remove(Options::ENABLE_SMART_PUNCTUATION);
+            let parser = Parser::new_ext(&rest_of_file, options);
             html::push_html(&mut text, parser);
         } else {
             text = rest_of_file;
