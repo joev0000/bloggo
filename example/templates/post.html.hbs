@@ -1,0 +1,29 @@
+<html>
+<head>
+  <title>example.com - {{#with (lookup posts 0)}}{{title}}{{/with}}</title>
+  <meta charset="utf-8"/>
+  <link rel="stylesheet" href="/index.css"/>
+</head>
+<body>
+  {{> header}}
+  <div class="content">
+    {{#with (lookup posts 0)}}
+      <article class="main">
+        <h1>{{title}}</h1>
+        {{#if date}}{{formatDateTime date "%A, %B %e, %Y"}}{{/if}}
+        {{#if tags}} Tagged: {{join tags}} {{/if}}
+        <div class="text">
+          {{{text}}}
+        </div>
+      </article>
+    {{/with}}
+    <div class="sidebar">
+      <ul>
+        {{#each tags}}
+          <li><a href="{{index_url}}">{{name}}</a> ({{count}})</li>
+        {{/each}}
+      </ul>
+    </div>
+  </div>
+</body>
+</html>

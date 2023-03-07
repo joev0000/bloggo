@@ -1,0 +1,32 @@
+<html>
+<head>
+  <title>example.com {{#if tag}} - {{tag}}{{/if}}</title>
+  <meta charset="utf-8"/>
+  <link rel="stylesheet" href="/index.css"/>
+</head>
+<body>
+  {{> header}}
+  <div class="content">
+    <ul class="main">
+      {{#each posts}}
+        <article>
+          <div class="date">
+            {{#if date}} {{formatDateTime date "%B %e, %Y"}} {{/if}}
+          </div>
+          <div class="title"><a href="{{url}}">{{title}}</a></div>
+          <div class="abstract">
+            {{{abstract}}}
+          </div>
+        </article>
+      {{/each}}
+    </ul>
+    <div class="sidebar">
+      <ul>
+        {{#each tags}}
+          <li><a href="{{index_url}}">{{name}}</a> ({{count}})</li>
+        {{/each}}
+      </ul>
+    </div>
+  </div>
+</body>
+</html>
