@@ -138,7 +138,6 @@
 //!
 //! Bloggo is distributed under the terms of the MIT License.
 
-pub mod atom;
 pub mod error;
 pub mod fs;
 pub mod helper;
@@ -224,7 +223,9 @@ impl<'a> Bloggo<'a> {
             template_dir.display()
         );
         self.handlebars
-            .register_templates_directory(".html.hbs", template_dir)?;
+            .register_templates_directory(".html.hbs", &template_dir)?;
+        self.handlebars
+            .register_templates_directory(".xml.hbs", &template_dir)?;
 
         fs::create_dir_all(&self.dest_dir)?;
         self.copy_assets()?;
@@ -247,8 +248,9 @@ impl<'a> Bloggo<'a> {
             tags: &tags,
             posts: &all_posts_refs,
         };
+
         self.render_index(&render_context, &PathBuf::from("index.html"))?;
-        self.render_atom_feed(&all_posts_refs, &PathBuf::from("atom.xml"))?;
+        self.render_atom_feed(&render_context, &PathBuf::from("atom.xml"))?;
         for (tag, posts) in &tag_index {
             let mut index_path = PathBuf::from(tag);
             index_path.push("index.html");
@@ -258,7 +260,7 @@ impl<'a> Bloggo<'a> {
 
             let mut feed_path = PathBuf::from(tag);
             feed_path.push("atom.xml");
-            self.render_atom_feed(posts, &feed_path)?;
+            self.render_atom_feed(&render_context, &feed_path)?;
         }
         self.render_posts(&all_posts, &tags)?;
         Ok(())
@@ -278,7 +280,7 @@ impl<'a> Bloggo<'a> {
         Ok(())
     }
 
-    fn render_atom_feed(&self, posts: &[&Post], path: &Path) -> Result<()> {
+    fn render_atom_feed(&self, render_context: &RenderContext, path: &Path) -> Result<()> {
         let mut p = PathBuf::new();
         p.push(&self.dest_dir);
         p.push(path);
@@ -287,7 +289,7 @@ impl<'a> Bloggo<'a> {
             fs::create_dir_all(parent)?;
         }
         let mut out = BufWriter::new(File::create(p)?);
-        atom::generate_atom_feed(posts, &mut out)?;
+        self.generate_atom_feed(render_context, &mut out)?;
         out.flush()?;
         Ok(())
     }
@@ -369,6 +371,16 @@ impl<'a> Bloggo<'a> {
     {
         self.handlebars
             .render_to_write("index", render_context, out)?;
+        Ok(())
+    }
+
+    /// Generate an Atom feed using the atom template and the list of posts.
+    fn generate_atom_feed<W>(&self, render_context: &RenderContext, out: &mut W) -> Result<()>
+    where
+        W: Write,
+    {
+        self.handlebars
+            .render_to_write("atom", render_context, out)?;
         Ok(())
     }
 
