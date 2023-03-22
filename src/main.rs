@@ -3,15 +3,14 @@
 //! A command line wrapper around the [bloggo] static site generator library.
 use clap::{arg, command};
 use log::error;
-use std::process::ExitCode;
+use std::{env, process::ExitCode};
 
 fn main() -> ExitCode {
     let matches = command!()
         .args(&[
-            arg!(-s --source <DIR> "Directory containing post and template source")
-                .default_value("source/"),
-            arg!(-o --dest <DIR> "Directory where output will be stored").default_value("build/"),
-            arg!(-b --base <URL> "The base URL for relative links").default_value(""),
+            arg!(-s --source <DIR> "Directory containing post and template source (default: source)"),
+            arg!(-o --dest <DIR> "Directory where output will be stored (default: build)"),
+            arg!(-b --base <URL> "The base URL for relative links"),
             arg!(-v --verbose "Provide verbose output"),
         ])
         .subcommand_required(true)
@@ -19,9 +18,9 @@ fn main() -> ExitCode {
         .subcommand(command!("build").about("Build static site pages"))
         .get_matches();
 
-    let src_dir = matches.get_one::<String>("source").unwrap();
-    let dest_dir = matches.get_one::<String>("dest").unwrap();
-    let base_url = matches.get_one::<String>("base").unwrap();
+    let src_dir = arg_or_env_or_default(matches.get_one("source"), "BLOGGO_SRC", "source");
+    let dest_dir = arg_or_env_or_default(matches.get_one("dest"), "BLOGGO_DEST", "dest");
+    let base_url = arg_or_env_or_default(matches.get_one("base"), "BLOGGO_BASE", "");
     let verbose = matches.get_flag("verbose");
 
     init_logger(verbose);
@@ -46,8 +45,17 @@ fn main() -> ExitCode {
     }
 }
 
+/// Get a configuration value using the following steps:
+/// 1. If the provided argument value is Some, use it.
+/// 2. If the environement variable exists, use it.
+/// 3. Otherwise, return the default value.
+fn arg_or_env_or_default(arg: Option<&String>, env_var: &str, default: &str) -> String {
+    arg.map(|s| s.to_owned())
+        .or(env::var(env_var).ok())
+        .unwrap_or_else(|| String::from(default))
+}
+
 use env_logger::{Builder, Env};
-use std::env;
 
 fn init_logger(verbose: bool) {
     let filter_env = "BLOGGO_LOG";
