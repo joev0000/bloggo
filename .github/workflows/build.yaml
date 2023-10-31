@@ -34,7 +34,7 @@ jobs:
         with:
           command: clippy
           args: '--release'
-      - run: mv target/release/bloggo target/release/bloggo-linux-x86_64 && xz -k target/release/bloggo-linux-x86_64
+      - run: mv target/release/bloggo target/release/bloggo-linux-x86_64 && rm -f target/release/bloggo-linux-x86_64.xz && xz -k target/release/bloggo-linux-x86_64
       - name: Release
         uses: softprops/action-gh-release@v1
         if: startsWith(github.ref, 'refs/tags/')
