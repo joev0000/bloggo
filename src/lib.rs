@@ -556,7 +556,7 @@ fn extract_date_from_str(s: &str) -> Option<DateTime<Utc>> {
     NaiveDate::parse_from_str(truncated.as_str(), "%Y-%m-%d")
         .ok()
         .and_then(|d| d.and_hms_opt(0, 0, 0))
-        .map(|dt| DateTime::from_utc(dt, Utc))
+        .map(|dt| DateTime::from_naive_utc_and_offset(dt, Utc))
 }
 
 /// Parse a YAML [str] into a [Value].
