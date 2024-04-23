@@ -1,5 +1,8 @@
 use chrono::DateTime;
-use handlebars::{Context, Handlebars, Helper, HelperDef, RenderContext, RenderError, ScopedJson};
+use handlebars::{
+    Context, Handlebars, Helper, HelperDef, RenderContext, RenderError, RenderErrorReason,
+    ScopedJson,
+};
 
 /// A Handlebars helper that formats date string properties for rendering.
 ///
@@ -31,17 +34,19 @@ impl FormatDateTimeHelper {
 impl HelperDef for FormatDateTimeHelper {
     fn call_inner<'reg: 'rc, 'rc>(
         &self,
-        h: &Helper<'reg, 'rc>,
+        h: &Helper<'rc>,
         _: &'reg Handlebars<'reg>,
         _: &'rc Context,
         _: &mut RenderContext<'reg, 'rc>,
-    ) -> std::result::Result<ScopedJson<'reg, 'rc>, RenderError> {
+    ) -> std::result::Result<ScopedJson<'rc>, RenderError> {
         let value = h
             .param(0)
             .map(|pj| pj.value())
             .filter(|v| !v.is_null())
             .and_then(|v| v.as_str())
-            .ok_or_else(|| RenderError::new("Property cannot be converted to string."))?;
+            .ok_or_else(|| {
+                RenderErrorReason::Other("Property cannot be converted to string.".into())
+            })?;
 
         let format = h
             .param(1)
@@ -51,7 +56,7 @@ impl HelperDef for FormatDateTimeHelper {
             .unwrap_or("%c");
 
         let dt = DateTime::parse_from_str(value, "%+").map_err(|e| {
-            RenderError::new(format!("Could not parse as datetime: {} ({})", value, e))
+            RenderErrorReason::Other(format!("Could not parse as datetime: {} ({})", value, e))
         })?;
 
         Ok(ScopedJson::Derived(serde_json::value::Value::String(
@@ -87,18 +92,20 @@ impl JoinHelper {
 impl HelperDef for JoinHelper {
     fn call_inner<'reg: 'rc, 'rc>(
         &self,
-        h: &Helper<'reg, 'rc>,
+        h: &Helper<'rc>,
         _: &'reg Handlebars<'reg>,
         _: &'rc Context,
         _: &mut RenderContext<'reg, 'rc>,
-    ) -> std::result::Result<ScopedJson<'reg, 'rc>, RenderError> {
+    ) -> std::result::Result<ScopedJson<'rc>, RenderError> {
         let value: Vec<&str> = h
             .param(0)
             .map(|pj| pj.value())
             .filter(|v| !v.is_null())
             .and_then(|v| v.as_array())
             .map(|a| a.iter().filter_map(|e| e.as_str()).collect())
-            .ok_or_else(|| RenderError::new("Property cannot be converted to array."))?;
+            .ok_or_else(|| {
+                RenderErrorReason::Other("Property cannot be converted to array.".into())
+            })?;
 
         let sep = h
             .param(1)

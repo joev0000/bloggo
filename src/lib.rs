@@ -145,7 +145,7 @@ pub mod value;
 
 use chrono::{DateTime, NaiveDate, Utc};
 use error::Error;
-use handlebars::Handlebars;
+use handlebars::{DirectorySourceOptions, Handlebars};
 use helper::{FormatDateTimeHelper, JoinHelper};
 use log::{debug, info};
 use pulldown_cmark::{html, Options, Parser};
@@ -222,10 +222,20 @@ impl<'a> Bloggo<'a> {
             "Registering templates in directory {}",
             template_dir.display()
         );
+
+        let html_options = DirectorySourceOptions {
+            tpl_extension: ".html.hbs".into(),
+            ..DirectorySourceOptions::default()
+        };
         self.handlebars
-            .register_templates_directory(".html.hbs", &template_dir)?;
+            .register_templates_directory(&template_dir, html_options)?;
+
+        let xml_options = DirectorySourceOptions {
+            tpl_extension: ".xml.hbs".into(),
+            ..DirectorySourceOptions::default()
+        };
         self.handlebars
-            .register_templates_directory(".xml.hbs", &template_dir)?;
+            .register_templates_directory(&template_dir, xml_options)?;
 
         fs::create_dir_all(&self.dest_dir)?;
         self.copy_assets()?;
